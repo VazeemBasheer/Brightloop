@@ -251,8 +251,8 @@
       "status": "Active",
       "startDate": "2026-01-01",
       "expiryDate": "2027-01-01",
-      "nextBillingDate": "2026-10-31",
-      "lastBilledDate": "2026-09-30",
+      "nextBillingDate": "2026-12-01",
+      "lastBilledDate": "2026-10-31",
       "paymentTerms": "Net 15",
       "discountId": "disc-volume-10",
       "taxId": "tax-std-10",
@@ -283,8 +283,8 @@
       "status": "Active",
       "startDate": "2026-03-01",
       "expiryDate": "2027-03-01",
-      "nextBillingDate": "2026-10-31",
-      "lastBilledDate": "2026-09-30",
+      "nextBillingDate": "2026-12-01",
+      "lastBilledDate": "2026-10-31",
       "paymentTerms": "Net 30",
       "discountId": null,
       "taxId": "tax-std-10",
@@ -315,8 +315,8 @@
       "status": "Active",
       "startDate": "2026-02-15",
       "expiryDate": "2027-02-15",
-      "nextBillingDate": "2026-10-31",
-      "lastBilledDate": "2026-09-30",
+      "nextBillingDate": "2026-12-01",
+      "lastBilledDate": "2026-10-31",
       "paymentTerms": "Immediate",
       "discountId": null,
       "taxId": "tax-std-10",
@@ -347,8 +347,8 @@
       "status": "Active",
       "startDate": "2026-05-01",
       "expiryDate": "2027-05-01",
-      "nextBillingDate": "2026-10-31",
-      "lastBilledDate": "2026-09-30",
+      "nextBillingDate": "2026-12-01",
+      "lastBilledDate": "2026-10-31",
       "paymentTerms": "Net 15",
       "discountId": "disc-volume-10",
       "taxId": "tax-std-10",
@@ -379,8 +379,8 @@
       "status": "Active",
       "startDate": "2026-01-01",
       "expiryDate": "2027-01-01",
-      "nextBillingDate": "2026-10-31",
-      "lastBilledDate": "2025-12-31",
+      "nextBillingDate": "2027-10-31",
+      "lastBilledDate": "2026-10-31",
       "paymentTerms": "Net 30",
       "discountId": "disc-volume-10",
       "taxId": "tax-std-10",
@@ -435,8 +435,8 @@
       "status": "Active",
       "startDate": "2026-04-10",
       "expiryDate": "2027-04-10",
-      "nextBillingDate": "2026-10-31",
-      "lastBilledDate": "2026-09-30",
+      "nextBillingDate": "2026-12-01",
+      "lastBilledDate": "2026-10-31",
       "paymentTerms": "Net 15",
       "discountId": "disc-fixed-50",
       "taxId": "tax-std-10",
@@ -467,8 +467,8 @@
       "status": "Active",
       "startDate": "2026-07-01",
       "expiryDate": "2027-07-01",
-      "nextBillingDate": "2026-10-31",
-      "lastBilledDate": "2026-09-30",
+      "nextBillingDate": "2026-12-01",
+      "lastBilledDate": "2026-10-31",
       "paymentTerms": "Immediate",
       "discountId": null,
       "taxId": "tax-std-10",
@@ -676,6 +676,309 @@
           "quantity": 2,
           "unitPrice": 250,
           "total": 500
+        }
+      ]
+    },
+    {
+      "id": "INV-2026-004",
+      "subscriptionId": "SUB-1001",
+      "customerId": "cust-101",
+      "customerName": "Acme Technologies Ltd",
+      "issueDate": "2026-10-31",
+      "dueDate": "2026-11-15",
+      "billingPeriod": {
+        "start": "2026-10-31",
+        "end": "2026-12-01"
+      },
+      "status": "Confirmed",
+      "subtotal": 1290,
+      "discountTotal": 129,
+      "discountApplied": {
+        "id": "disc-volume-10",
+        "code": "VOLUME10",
+        "amount": 129
+      },
+      "taxTotal": 116.1,
+      "taxApplied": {
+        "id": "tax-std-10",
+        "name": "Standard Sales Tax (10%)",
+        "rate": 0.1,
+        "amount": 116.1
+      },
+      "totalAmount": 1277.1,
+      "amountPaid": 0,
+      "amountDue": 1277.1,
+      "items": [
+        {
+          "productId": "prod-slack",
+          "description": "Slack Enterprise (50 seats / units)",
+          "quantity": 50,
+          "unitPrice": 15,
+          "total": 750
+        },
+        {
+          "productId": "prod-teams",
+          "description": "Microsoft Teams Business (45 seats / units)",
+          "quantity": 45,
+          "unitPrice": 12,
+          "total": 540
+        }
+      ]
+    },
+    {
+      "id": "INV-2026-005",
+      "subscriptionId": "SUB-1002",
+      "customerId": "cust-101",
+      "customerName": "Acme Technologies Ltd",
+      "issueDate": "2026-10-31",
+      "dueDate": "2026-11-30",
+      "billingPeriod": {
+        "start": "2026-10-31",
+        "end": "2026-12-01"
+      },
+      "status": "Confirmed",
+      "subtotal": 1170,
+      "discountTotal": 0,
+      "discountApplied": null,
+      "taxTotal": 117,
+      "taxApplied": {
+        "id": "tax-std-10",
+        "name": "Standard Sales Tax (10%)",
+        "rate": 0.1,
+        "amount": 117
+      },
+      "totalAmount": 1287,
+      "amountPaid": 0,
+      "amountDue": 1287,
+      "items": [
+        {
+          "productId": "prod-asana",
+          "description": "Asana Business (30 seats / units)",
+          "quantity": 30,
+          "unitPrice": 24,
+          "total": 720
+        },
+        {
+          "productId": "prod-jira",
+          "description": "Jira Cloud Premium (30 seats / units)",
+          "quantity": 30,
+          "unitPrice": 15,
+          "total": 450
+        }
+      ]
+    },
+    {
+      "id": "INV-2026-006",
+      "subscriptionId": "SUB-1003",
+      "customerId": "cust-102",
+      "customerName": "Vertex Logistics",
+      "issueDate": "2026-10-31",
+      "dueDate": "2026-10-31",
+      "billingPeriod": {
+        "start": "2026-10-31",
+        "end": "2026-12-01"
+      },
+      "status": "Confirmed",
+      "subtotal": 1109,
+      "discountTotal": 0,
+      "discountApplied": null,
+      "taxTotal": 110.9,
+      "taxApplied": {
+        "id": "tax-std-10",
+        "name": "Standard Sales Tax (10%)",
+        "rate": 0.1,
+        "amount": 110.9
+      },
+      "totalAmount": 1219.9,
+      "amountPaid": 0,
+      "amountDue": 1219.9,
+      "items": [
+        {
+          "productId": "prod-brightcrm",
+          "description": "Brightloop CRM Core (Odoo Brand Edition) (1 seats / units)",
+          "quantity": 1,
+          "unitPrice": 609,
+          "total": 609
+        },
+        {
+          "productId": "prod-aws-addon",
+          "description": "Dedicated Cloud Server Addon (2 seats / units)",
+          "quantity": 2,
+          "unitPrice": 250,
+          "total": 500
+        }
+      ]
+    },
+    {
+      "id": "INV-2026-007",
+      "subscriptionId": "SUB-1004",
+      "customerId": "cust-102",
+      "customerName": "Vertex Logistics",
+      "issueDate": "2026-10-31",
+      "dueDate": "2026-11-15",
+      "billingPeriod": {
+        "start": "2026-10-31",
+        "end": "2026-12-01"
+      },
+      "status": "Confirmed",
+      "subtotal": 1490,
+      "discountTotal": 149,
+      "discountApplied": {
+        "id": "disc-volume-10",
+        "code": "VOLUME10",
+        "amount": 149
+      },
+      "taxTotal": 134.1,
+      "taxApplied": {
+        "id": "tax-std-10",
+        "name": "Standard Sales Tax (10%)",
+        "rate": 0.1,
+        "amount": 134.1
+      },
+      "totalAmount": 1475.1,
+      "amountPaid": 0,
+      "amountDue": 1475.1,
+      "items": [
+        {
+          "productId": "prod-gsuite",
+          "description": "Google Workspace Enterprise (40 seats / units)",
+          "quantity": 40,
+          "unitPrice": 18,
+          "total": 720
+        },
+        {
+          "productId": "prod-m365",
+          "description": "Microsoft 365 Business (35 seats / units)",
+          "quantity": 35,
+          "unitPrice": 22,
+          "total": 770
+        }
+      ]
+    },
+    {
+      "id": "INV-2026-008",
+      "subscriptionId": "SUB-1005",
+      "customerId": "cust-103",
+      "customerName": "CloudScale Systems",
+      "issueDate": "2026-10-31",
+      "dueDate": "2026-11-30",
+      "billingPeriod": {
+        "start": "2026-10-31",
+        "end": "2027-10-31"
+      },
+      "status": "Confirmed",
+      "subtotal": 1205,
+      "discountTotal": 120.5,
+      "discountApplied": {
+        "id": "disc-volume-10",
+        "code": "VOLUME10",
+        "amount": 120.5
+      },
+      "taxTotal": 108.45,
+      "taxApplied": {
+        "id": "tax-std-10",
+        "name": "Standard Sales Tax (10%)",
+        "rate": 0.1,
+        "amount": 108.45
+      },
+      "totalAmount": 1192.95,
+      "amountPaid": 0,
+      "amountDue": 1192.95,
+      "items": [
+        {
+          "productId": "prod-brightcrm",
+          "description": "Brightloop CRM Core (20 seats / units)",
+          "quantity": 20,
+          "unitPrice": 49,
+          "total": 980
+        },
+        {
+          "productId": "prod-zoom",
+          "description": "Zoom Video Pro (15 seats / units)",
+          "quantity": 15,
+          "unitPrice": 15,
+          "total": 225
+        }
+      ]
+    },
+    {
+      "id": "INV-2026-009",
+      "subscriptionId": "SUB-1007",
+      "customerId": "cust-104",
+      "customerName": "NexGen Design Studio",
+      "issueDate": "2026-10-31",
+      "dueDate": "2026-11-15",
+      "billingPeriod": {
+        "start": "2026-10-31",
+        "end": "2026-12-01"
+      },
+      "status": "Confirmed",
+      "subtotal": 420,
+      "discountTotal": 50,
+      "discountApplied": {
+        "id": "disc-fixed-50",
+        "code": "WELCOME50",
+        "amount": 50
+      },
+      "taxTotal": 37,
+      "taxApplied": {
+        "id": "tax-std-10",
+        "name": "Standard Sales Tax (10%)",
+        "rate": 0.1,
+        "amount": 37
+      },
+      "totalAmount": 407,
+      "amountPaid": 0,
+      "amountDue": 407,
+      "items": [
+        {
+          "productId": "prod-slack",
+          "description": "Slack Enterprise (12 seats / units)",
+          "quantity": 12,
+          "unitPrice": 15,
+          "total": 180
+        },
+        {
+          "productId": "prod-asana",
+          "description": "Asana Business (10 seats / units)",
+          "quantity": 10,
+          "unitPrice": 24,
+          "total": 240
+        }
+      ]
+    },
+    {
+      "id": "INV-2026-010",
+      "subscriptionId": "SUB-1008",
+      "customerId": "cust-105",
+      "customerName": "Bright Retail Mart",
+      "issueDate": "2026-10-31",
+      "dueDate": "2026-10-31",
+      "billingPeriod": {
+        "start": "2026-10-31",
+        "end": "2026-12-01"
+      },
+      "status": "Confirmed",
+      "subtotal": 245,
+      "discountTotal": 0,
+      "discountApplied": null,
+      "taxTotal": 24.5,
+      "taxApplied": {
+        "id": "tax-std-10",
+        "name": "Standard Sales Tax (10%)",
+        "rate": 0.1,
+        "amount": 24.5
+      },
+      "totalAmount": 269.5,
+      "amountPaid": 0,
+      "amountDue": 269.5,
+      "items": [
+        {
+          "productId": "prod-brightcrm",
+          "description": "Brightloop CRM Core (5 seats / units)",
+          "quantity": 5,
+          "unitPrice": 49,
+          "total": 245
         }
       ]
     }
