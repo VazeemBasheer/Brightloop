@@ -41,6 +41,7 @@ function addDays(date, days) {
  * @param {Object} options
  * @param {string} [options.asOfDate] - Optional simulated current date (defaults to today)
  * @param {boolean} [options.forceAllActive] - If true, bills all active regardless of nextBillingDate
+ * @param {string} [options.customerId] - Restricts billing to one customer
  */
 function runBilling(options = {}) {
   const now = options.asOfDate ? new Date(options.asOfDate) : new Date();
@@ -51,7 +52,9 @@ function runBilling(options = {}) {
   const skipped = [];
 
   // Filter only Active subscriptions
-  const activeSubs = db.subscriptions.filter(s => s.status === 'Active');
+  const activeSubs = db.subscriptions.filter(s =>
+    s.status === 'Active' && (!options.customerId || s.customerId === options.customerId)
+  );
 
   for (const sub of activeSubs) {
     // Double-billing check: already billed today

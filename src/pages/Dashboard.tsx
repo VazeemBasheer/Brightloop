@@ -17,19 +17,24 @@ import { useAssistant } from '../components/app/AssistantContext';
 import { Alert } from '../components/ui/Alert';
 import { useToast } from '../components/ui/Toast';
 import { api, type DashboardData } from '../lib/api';
-import { agingToneClasses, type Invoice } from '../lib/data';
+import { agingToneClasses, type Invoice, type PlanMixItem } from '../lib/data';
 import { num, percent, usd } from '../lib/format';
-
-const ranges = [
-  { id: '6m', label: '6M' },
-  { id: '12m', label: '12M' },
-] as const;
 
 const statusFilters = [
   { id: 'all', label: 'All' },
   { id: 'overdue', label: 'Overdue' },
-  { id: 'sent', label: 'Reminded' },
+  { id: 'sent', label: 'Open' },
 ] as const;
+
+function planMixGradient(plans: PlanMixItem[]) {
+  let offset = 0;
+  const segments = plans.map((plan) => {
+    const start = offset;
+    offset += plan.share * 3.6;
+    return `${plan.color} ${start}deg ${offset}deg`;
+  });
+  return segments.length ? `conic-gradient(${segments.join(', ')})` : '#ffffff10';
+}
 
 export default function Dashboard() {
   const { push } = useToast();
@@ -37,18 +42,25 @@ export default function Dashboard() {
   const location = useLocation();
 
   const [data, setData] = useState<DashboardData | null>(null);
-  const [range, setRange] = useState<'6m' | '12m'>('12m');
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<'all' | 'overdue' | 'sent'>('all');
   const [notified, setNotified] = useState<string[]>([]);
   const [sending, setSending] = useState<string | null>(null);
   const [alertOpen, setAlertOpen] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
-    api.getDashboard().then((result) => {
-      if (alive) setData(result);
-    });
+    api.getDashboard()
+      .then((result) => {
+        if (alive) {
+          setData(result);
+          setNotified(result.queuedNoticeInvoiceIds);
+        }
+      })
+      .catch((error: unknown) => {
+        if (alive) setLoadError(error instanceof Error ? error.message : 'Dashboard data could not be loaded.');
+      });
     return () => {
       alive = false;
     };
@@ -62,11 +74,6 @@ export default function Dashboard() {
     }, 60);
     return () => window.clearTimeout(timer);
   }, [location.hash]);
-
-  const chartData = useMemo(
-    () => (data ? (range === '6m' ? data.revenue.slice(-6) : data.revenue) : []),
-    [data, range],
-  );
 
   const invoices = useMemo(() => {
     if (!data) return [];
@@ -83,37 +90,52 @@ export default function Dashboard() {
   const totals = useMemo(() => {
     if (!data) return null;
     const outstanding = data.aging.reduce((sum, bucket) => sum + bucket.amount, 0);
-    const current = data.kpis.find((k) => k.id === 'collected');
-    const billed = data.kpis.find((k) => k.id === 'mrr');
-    const collectedPct =
-      current && billed ? Math.round((current.value / billed.value) * 100) : 0;
+    const collectedPct = data.collectionRate;
     return { outstanding, collectedPct };
   }, [data]);
 
   const notify = async (invoice: Invoice) => {
     setSending(invoice.id);
-    await api.sendOverdueNotice(invoice.id);
-    setSending(null);
-    setNotified((current) => [...current, invoice.id]);
-    push({
-      tone: 'success',
-      title: `Reminder queued · ${invoice.id}`,
-      description: `${invoice.customer} will receive the ${invoice.daysOverdue > 60 ? 'escalation' : 'standard'} notice within a minute.`,
-    });
+    try {
+      await api.sendOverdueNotice(invoice.id);
+      setNotified((current) => [...current, invoice.id]);
+      push({
+        tone: 'success',
+        title: `Reminder queued · ${invoice.id}`,
+        description: `${invoice.customer}'s notice is recorded in the billing queue.`,
+      });
+    } catch (error) {
+      push({
+        tone: 'error',
+        title: 'Could not queue reminder',
+        description: error instanceof Error ? error.message : 'The billing service did not accept the request.',
+      });
+    } finally {
+      setSending(null);
+    }
   };
 
   const notifyAll = async () => {
     if (!data) return;
-    const pending = data.overdueInvoices.filter((i) => !notified.includes(i.id));
+    const pending = data.overdueInvoices.filter((i) => i.daysOverdue > 0 && !notified.includes(i.id));
     setSending('all');
-    await Promise.all(pending.map((i) => api.sendOverdueNotice(i.id)));
-    setSending(null);
-    setNotified((current) => [...current, ...pending.map((i) => i.id)]);
-    push({
-      tone: 'success',
-      title: `${pending.length} reminders queued`,
-      description: 'Delivery is logged against each invoice in the chase queue.',
-    });
+    try {
+      await Promise.all(pending.map((i) => api.sendOverdueNotice(i.id)));
+      setNotified((current) => [...current, ...pending.map((i) => i.id)]);
+      push({
+        tone: 'success',
+        title: `${pending.length} reminders queued`,
+        description: 'Requests are recorded in the billing queue.',
+      });
+    } catch (error) {
+      push({
+        tone: 'error',
+        title: 'Could not queue all reminders',
+        description: error instanceof Error ? error.message : 'The billing service did not accept every request.',
+      });
+    } finally {
+      setSending(null);
+    }
   };
 
   const exportCsv = () => {
@@ -129,7 +151,7 @@ export default function Dashboard() {
         i.status,
       ]),
     ];
-    const blob = new Blob([rows.map((r) => r.join(',')).join('\n')], {
+    const blob = new Blob([rows.map((row) => row.map((cell) => `"${cell.replaceAll('"', '""')}"`).join(',')).join('\n')], {
       type: 'text/csv',
     });
     const url = URL.createObjectURL(blob);
@@ -142,11 +164,11 @@ export default function Dashboard() {
   };
 
   return (
-    <AppShell title="Finance overview" subtitle="Aster & Co. · October 2026">
+    <AppShell title="Finance overview" subtitle="Live billing data · all customers">
       <div id="overview" className="scroll-mt-24">
         <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
           <div>
-            <p className="eyebrow">October 2026 · all customers</p>
+            <p className="eyebrow">{new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} · all customers</p>
             <h1 className="mt-2.5 text-2xl font-medium tracking-[-0.03em] text-white sm:text-[28px]">
               Good morning, Maya.
             </h1>
@@ -165,30 +187,19 @@ export default function Dashboard() {
             >
               <Download className="size-3.5" /> Export
             </button>
-            <div className="flex rounded-lg border border-white/10 p-0.5">
-              {ranges.map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  onClick={() => setRange(option.id)}
-                  aria-pressed={range === option.id}
-                  className={`rounded-md px-2.5 py-1.5 font-mono text-[10px] transition ${
-                    range === option.id
-                      ? 'bg-white/10 text-zinc-100'
-                      : 'text-zinc-500 hover:text-zinc-300'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
           </div>
         </div>
 
-        {alertOpen && (
+        {loadError && (
+          <Alert tone="error" title="Finance data unavailable" className="mt-6">
+            {loadError} Confirm the billing API is running on port 5000, then refresh.
+          </Alert>
+        )}
+
+        {alertOpen && (data?.overdueInvoices.some((invoice) => invoice.daysOverdue > 60) ?? false) && (
           <Alert
             tone="warning"
-            title="Three invoices have crossed 60 days"
+            title={`${data?.overdueInvoices.filter((invoice) => invoice.daysOverdue > 60).length ?? 0} invoices have crossed 60 days`}
             className="mt-6"
             onDismiss={() => setAlertOpen(false)}
             action={
@@ -209,8 +220,7 @@ export default function Dashboard() {
               </>
             }
           >
-            $18,630 sits in the 60+ bucket — enough to cover next month's
-            duplicated tooling. Dunning has already sent two reminders.
+            {usd(data?.aging.find((bucket) => bucket.label === '60+ days')?.amount ?? 0)} is more than 60 days past due, based on the billing records.
           </Alert>
         )}
 
@@ -236,20 +246,26 @@ export default function Dashboard() {
                         : num(kpi.value)}
                     </p>
                     <div className="mt-3 flex items-center gap-1.5">
-                      <span
-                        className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 font-mono text-[10px] ${
-                          good
-                            ? 'bg-mint-500/10 text-mint-400'
-                            : 'bg-ember-500/10 text-ember-400'
-                        }`}
-                      >
-                        {kpi.trend === 'up' ? (
-                          <ArrowUpRight className="size-3" />
-                        ) : (
-                          <ArrowDownRight className="size-3" />
-                        )}
-                        {percent(kpi.delta)}
-                      </span>
+                      {kpi.trend === 'flat' ? (
+                        <span className="rounded bg-white/5 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400">
+                          Live
+                        </span>
+                      ) : (
+                        <span
+                          className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 font-mono text-[10px] ${
+                            good
+                              ? 'bg-mint-500/10 text-mint-400'
+                              : 'bg-ember-500/10 text-ember-400'
+                          }`}
+                        >
+                          {kpi.trend === 'up' ? (
+                            <ArrowUpRight className="size-3" />
+                          ) : (
+                            <ArrowDownRight className="size-3" />
+                          )}
+                          {percent(kpi.delta)}
+                        </span>
+                      )}
                       <span className="truncate text-[10px] text-zinc-600">
                         {kpi.deltaLabel}
                       </span>
@@ -276,21 +292,21 @@ export default function Dashboard() {
                   Recurring revenue
                 </h2>
                 <p className="mt-0.5 text-[11px] text-zinc-600">
-                  MRR normalised from daily, weekly, monthly and yearly plans
+                  Current recurring revenue and collected payments
                 </p>
               </div>
               <div className="text-right">
                 <p className="font-mono text-lg text-white">
                   {data ? usd(data.kpis[0].value) : '—'}
                 </p>
-                <p className="font-mono text-[10px] text-mint-400">
-                  +{data ? usd(29_200) : '—'} this month
+                <p className="font-mono text-[10px] text-zinc-500">
+                  Live billing data
                 </p>
               </div>
             </div>
             <div className="mt-5">
               {data ? (
-                <RevenueChart data={chartData} />
+                <RevenueChart data={data.revenue} />
               ) : (
                 <div className="h-[240px] animate-pulse rounded-lg bg-white/[0.02]" />
               )}
@@ -312,7 +328,7 @@ export default function Dashboard() {
                     tone: 'info',
                     title: 'Plan breakdown',
                     description:
-                      'Variant pricing adds $560 per Platinum brand selection.',
+                      'Plan distribution is calculated from active subscriptions and their configured recurring prices.',
                   })
                 }
                 className="rounded-md p-1 text-zinc-600 transition hover:bg-white/5 hover:text-zinc-300"
@@ -328,7 +344,7 @@ export default function Dashboard() {
                   className="size-full rounded-full"
                   style={{
                     background: data
-                      ? `conic-gradient(#7c6deb 0deg 158deg, #3ec79a 158deg 295deg, #e9b464 295deg 360deg)`
+                      ? planMixGradient(data.planMix)
                       : '#ffffff10',
                     mask: 'radial-gradient(circle, transparent 55%, black 56%)',
                     WebkitMask:
@@ -445,7 +461,7 @@ export default function Dashboard() {
 
             <div className="mt-5 rounded-lg border border-white/8 bg-white/[0.02] p-3">
               <div className="flex items-center justify-between text-[11px]">
-                <span className="text-zinc-400">Collection rate this month</span>
+                <span className="text-zinc-400">Invoice collection rate</span>
                 <span className="font-mono text-zinc-200">
                   {totals ? `${totals.collectedPct}%` : '—'}
                 </span>
@@ -458,7 +474,7 @@ export default function Dashboard() {
               </div>
               <p className="mt-2 text-[10px] text-zinc-600">
                 {data
-                  ? `${usd(data.kpis[3].value)} of ${usd(data.kpis[0].value)} billed has settled.`
+                  ? `${usd(data.kpis[3].value)} collected against ${usd(data.billedTotal)} invoiced.`
                   : 'Calculating…'}
               </p>
             </div>
@@ -472,9 +488,9 @@ export default function Dashboard() {
 
             <div className="mt-5 space-y-3">
               {[
-                { label: 'Renewals due', value: '23', note: '$41,280 contracted' },
-                { label: 'Auto-charge cards', value: '19', note: '4 ACH · 2 wire' },
-                { label: 'Notice windows', value: '14 / 7 / 3 / 0', note: 'All queued' },
+                { label: 'Renewals due', value: data ? String(data.renewalsNext30Days) : '—', note: data ? `${usd(data.renewalValueNext30Days)} contracted` : 'Loading from billing records' },
+                { label: 'Overdue invoices', value: data ? String(data.overdueInvoiceCount) : '—', note: data ? usd(data.kpis.find((kpi) => kpi.id === 'overdue')?.value ?? 0) : 'Loading from billing records' },
+                { label: 'Active customers', value: data ? String(data.kpis.find((kpi) => kpi.id === 'active')?.value ?? 0) : '—', note: 'Currently active subscriptions' },
               ].map((row) => (
                 <div
                   key={row.label}
@@ -501,9 +517,9 @@ export default function Dashboard() {
                 type="button"
                 onClick={() =>
                   push({
-                    tone: 'success',
-                    title: 'Renewal preview built',
-                    description: '23 notices staged for 14-day dispatch.',
+                    tone: 'info',
+                    title: 'Renewal notices are not configured',
+                    description: 'Review upcoming renewals with Smart Insights; automated email delivery is not enabled.',
                   })
                 }
                 className="rounded-lg border border-white/10 px-3 py-2 text-[11px] text-zinc-300 transition hover:border-white/20 hover:text-white"
@@ -538,7 +554,7 @@ export default function Dashboard() {
               <button
                 type="button"
                 onClick={() => void notifyAll()}
-                disabled={sending !== null || !data}
+                disabled={sending !== null || !data || !data.overdueInvoices.some((invoice) => invoice.daysOverdue > 0 && !notified.includes(invoice.id))}
                 className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-white/10 px-2.5 py-1.5 text-[11px] text-zinc-300 transition hover:border-white/20 hover:text-white disabled:opacity-40"
               >
                 {sending === 'all' ? (
@@ -629,7 +645,11 @@ export default function Dashboard() {
                                 : 'text-zinc-400'
                           }`}
                         >
-                          {invoice.daysOverdue}d overdue
+                          {invoice.daysOverdue > 0
+                            ? `${invoice.daysOverdue}d overdue`
+                            : invoice.daysOverdue === 0
+                              ? 'Due today'
+                              : `Due in ${Math.abs(invoice.daysOverdue)}d`}
                         </p>
                       </td>
                       <td className="px-4 py-3.5 text-right font-mono text-[12px] text-zinc-200">
@@ -643,7 +663,7 @@ export default function Dashboard() {
                               : 'bg-amber-soft/10 text-amber-soft'
                           }`}
                         >
-                          {invoice.status === 'overdue' ? 'Overdue' : 'Reminded'}
+                          {invoice.status === 'overdue' ? 'Overdue' : 'Open'}
                         </span>
                       </td>
                       <td className="px-5 py-3.5 text-right">
@@ -651,6 +671,8 @@ export default function Dashboard() {
                           <span className="inline-flex items-center gap-1 text-[10px] text-mint-400">
                             <Check className="size-3" /> Queued
                           </span>
+                        ) : invoice.daysOverdue <= 0 ? (
+                          <span className="text-[10px] text-zinc-600">Not due</span>
                         ) : (
                           <button
                             type="button"
@@ -706,13 +728,13 @@ export default function Dashboard() {
                     minute: '2-digit',
                   })
                 : '—'}{' '}
-              · 1,248 records indexed
+              · {data?.kpis.find((kpi) => kpi.id === 'active')?.value ?? 0} subscriptions indexed
             </p>
           </div>
         </section>
 
         <p className="mt-5 text-center font-mono text-[9px] tracking-[0.18em] text-zinc-700 uppercase">
-          Every page responds in under two seconds · 1,200-record seed
+          Finance metrics are calculated from the live billing database
         </p>
       </div>
     </AppShell>

@@ -5,6 +5,7 @@ import { AuthShell } from '../components/AuthShell';
 import { Alert } from '../components/ui/Alert';
 import { Checkbox, Field } from '../components/ui/Field';
 import { useToast } from '../components/ui/Toast';
+import { api, clearCurrentCustomer, setCurrentCustomer } from '../lib/api';
 
 const roles = [
   { id: 'admin', label: 'Admin' },
@@ -26,7 +27,7 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
   const [resetSent, setResetSent] = useState<string | null>(null);
 
-  const submit = (e: FormEvent) => {
+  const submit = async (e: FormEvent) => {
     e.preventDefault();
     const next: typeof errors = {};
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -37,19 +38,36 @@ export default function Login() {
     if (Object.keys(next).length) return;
 
     setBusy(true);
-    window.setTimeout(() => {
-      setBusy(false);
+    try {
+      if (role === 'customer') {
+        const customer = await api.findCustomerByEmail(email);
+        if (!customer) {
+          setErrors({ email: 'No billing customer matches this email. Use a customer email from the demo database.' });
+          return;
+        }
+        setCurrentCustomer(customer.id);
+      } else {
+        clearCurrentCustomer();
+      }
       const destination = role === 'customer' ? '/app/portal' : '/app';
       push({
         tone: 'success',
         title: role === 'customer' ? 'Welcome back to your portal' : 'Signed in to Brightloop',
         description:
           role === 'customer'
-            ? 'Showing Aster & Co. subscriptions and invoices.'
+            ? 'Showing your live subscriptions and invoices.'
             : 'Demo workspace — Maya Chen, Finance Lead.',
       });
       navigate(destination);
-    }, 650);
+    } catch (error) {
+      push({
+        tone: 'error',
+        title: 'Could not sign in',
+        description: error instanceof Error ? error.message : 'The billing service is unavailable.',
+      });
+    } finally {
+      setBusy(false);
+    }
   };
 
   const sendReset = (e: FormEvent) => {

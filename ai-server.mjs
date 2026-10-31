@@ -9,27 +9,18 @@ app.use(cors());
 app.use(express.json());
 
 const PORT = process.env.PORT || 3001;
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const ai = process.env.GEMINI_API_KEY
+  ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
+  : null;
 
 app.get('/', (req, res) => {
-  res.json({ status: 'Dev 3 AI Server online', port: PORT });
+  res.json({ status: 'Dev 3 AI Server online', port: PORT, configured: Boolean(ai) });
 });
-
-app.listen(PORT, () => {
-  console.log(`Dev 3 AI Server running on http://localhost:${PORT}`);
-});
-
-const mockSubscriptions = [
-  { id: 1, name: "Slack Pro", category: "Communication", cost: 120, billing: "monthly", seats: 50, activeUsers: 48 },
-  { id: 2, name: "Microsoft Teams", category: "Communication", cost: 200, billing: "monthly", seats: 50, activeUsers: 12 },
-  { id: 3, name: "Figma Professional", category: "Design", cost: 144, billing: "yearly", seats: 10, activeUsers: 10 },
-  { id: 4, name: "Zoom Enterprise", category: "Video", cost: 300, billing: "monthly", seats: 100, activeUsers: 20 } // Zombie sub!
-];
 
 app.post('/api/ai/analyze-spending', async (req, res) => {
-  // In the real app, req.body.subscriptions comes from Dev 2. 
-  // For now, use the mockSubscriptions array.
-  const subsData = JSON.stringify(req.body.subscriptions || mockSubscriptions);
+  if (!ai) return res.status(503).json({ error: 'GEMINI_API_KEY is not configured' });
+  const subscriptions = Array.isArray(req.body.subscriptions) ? req.body.subscriptions : [];
+  const subsData = JSON.stringify(subscriptions);
 
   const prompt = `
     You are a financial optimization AI for a SaaS platform. 
@@ -42,8 +33,10 @@ app.post('/api/ai/analyze-spending', async (req, res) => {
     
     Return ONLY a raw JSON array of objects with this exact structure, no markdown formatting:
     [
-      { "type": "duplicate" | "zombie" | "upgrade", "tool": "Tool Name", "savingEstimate": 100, "recommendation": "Detailed reason here" }
+      { "type": "duplicate", "tool": "Tool Name", "savingEstimate": 100, "recommendation": "Detailed reason here", "confidence": 0.8 }
     ]
+    The type must be exactly one of: duplicate, zombie, upgrade.
+    savingEstimate must be an estimated annual savings amount in dollars. Do not invent usage or prices absent from the input.
     `;
 
   try {
@@ -53,7 +46,7 @@ app.post('/api/ai/analyze-spending', async (req, res) => {
     });
 
     // Strip markdown backticks if Gemini includes them
-    const cleanJson = response.text.replace(/```json/g, '').replace(/```/g, '');
+    const cleanJson = (response.text || '').replace(/```json/g, '').replace(/```/g, '').trim();
     res.json(JSON.parse(cleanJson));
   } catch (error) {
     console.error("AI Error:", error);
@@ -62,6 +55,7 @@ app.post('/api/ai/analyze-spending', async (req, res) => {
 });
 
 app.post('/api/ai/draft-email', async (req, res) => {
+  if (!ai) return res.status(503).json({ error: 'GEMINI_API_KEY is not configured' });
   const { vendorName, action, context } = req.body;
   // Example body: { vendorName: "Zoom", action: "cancel", context: "Only using 20 out of 100 seats." }
 
@@ -78,9 +72,29 @@ app.post('/api/ai/draft-email', async (req, res) => {
       contents: prompt,
     });
 
-    res.json({ emailDraft: response.text });
+    res.json({ emailDraft: response.text || '' });
   } catch (error) {
+    console.error("AI Error:", error);
     res.status(500).json({ error: "Failed to draft email" });
+  }
+});
+
+app.post('/api/ai/chat', async (req, res) => {
+  if (!ai) return res.status(503).json({ error: 'GEMINI_API_KEY is not configured' });
+  const { message, portfolio } = req.body;
+  if (typeof message !== 'string' || !message.trim()) {
+    return res.status(400).json({ error: 'A non-empty message is required' });
+  }
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: `You are Brightloop's finance assistant. Answer clearly using the supplied billing portfolio, including metrics, subscriptions, and invoices. Do not invent totals or claim actions were taken. If the data does not contain an answer, say so.\n\nBilling portfolio:\n${JSON.stringify(portfolio || {})}\n\nUser question:\n${message}`,
+    });
+    res.json({ reply: response.text || 'Gemini returned an empty response.' });
+  } catch (error) {
+    console.error("AI Error:", error);
+    res.status(500).json({ error: "Failed to answer question" });
   }
 });
 
@@ -101,4 +115,8 @@ app.get('/api/simulate-renewals', (req, res) => {
   });
 
   res.json({ success: true, logs });
+});
+
+app.listen(PORT, () => {
+  console.log(`Dev 3 AI Server running on http://localhost:${PORT}`);
 });

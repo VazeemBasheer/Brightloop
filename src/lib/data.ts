@@ -47,7 +47,7 @@ export interface ActivePlan {
   id: string;
   product: string;
   variant: string;
-  frequency: 'Monthly' | 'Yearly' | 'Weekly' | 'Daily';
+  frequency: 'Monthly' | 'Quarterly' | 'Yearly' | 'Weekly' | 'Daily';
   seats: number;
   price: number;
   renewsOn: string;
@@ -60,7 +60,7 @@ export interface PortalInvoice {
   period: string;
   issued: string;
   amount: number;
-  status: 'paid' | 'due' | 'draft';
+  status: 'paid' | 'due' | 'overdue' | 'draft';
 }
 
 export interface BillingRunResult {

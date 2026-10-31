@@ -53,7 +53,7 @@ export function AssistantDrawer({ open, onClose }: AssistantDrawerProps) {
       id: 'm-0',
       role: 'assistant',
       content:
-        'I audited the portfolio after the last billing run. Four findings hold most of the leakage — ask me anything about them, or about renewals and overdue cash.',
+        'Ask me to review subscription usage, find savings opportunities, or explain the billing data connected to this workspace.',
     },
   ]);
   const [input, setInput] = useState('');
@@ -64,6 +64,7 @@ export function AssistantDrawer({ open, onClose }: AssistantDrawerProps) {
   const load = async () => {
     setLoading(true);
     setFailed(false);
+    setAnalysis(null);
     try {
       const result = await api.getAnalysis();
       setAnalysis(result);
@@ -131,13 +132,26 @@ export function AssistantDrawer({ open, onClose }: AssistantDrawerProps) {
     void send(input);
   };
 
-  const act = (insight: Insight) => {
-    setHandled((current) => [...current, insight.id]);
-    push({
-      tone: 'success',
-      title: 'Draft prepared',
-      description: `${insight.action} · ${insight.vendor}. Review it before anything is sent.`,
-    });
+  const act = async (insight: Insight) => {
+    try {
+      const { emailDraft } = await api.draftEmail(insight);
+      setHandled((current) => [...current, insight.id]);
+      setMessages((current) => [
+        ...current,
+        { id: `m-${++messageId}`, role: 'assistant', content: `${insight.vendor} email draft:\n\n${emailDraft}` },
+      ]);
+      push({
+        tone: 'success',
+        title: 'Draft prepared',
+        description: `${insight.vendor} · review the draft in this conversation before sending.`,
+      });
+    } catch (error) {
+      push({
+        tone: 'error',
+        title: 'Could not draft email',
+        description: error instanceof Error ? error.message : 'The AI service did not complete the request.',
+      });
+    }
   };
 
   return (
@@ -172,8 +186,10 @@ export function AssistantDrawer({ open, onClose }: AssistantDrawerProps) {
                   <h2 className="text-sm font-medium text-zinc-100">
                     Smart insights
                   </h2>
-                  <span className="rounded-full bg-mint-500/10 px-2 py-0.5 font-mono text-[9px] tracking-wider text-mint-400 uppercase">
-                    Live
+                  <span className={`rounded-full px-2 py-0.5 font-mono text-[9px] tracking-wider uppercase ${
+                    analysis ? 'bg-mint-500/10 text-mint-400' : 'bg-white/5 text-zinc-500'
+                  }`}>
+                    {analysis ? 'Live' : 'Connected'}
                   </span>
                 </div>
                 <p className="mt-1.5 max-w-[300px] text-[11px] leading-relaxed text-zinc-500">
@@ -205,9 +221,9 @@ export function AssistantDrawer({ open, onClose }: AssistantDrawerProps) {
             <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-5">
               {failed && (
                 <Alert tone="warning" title="Analysis is unavailable" className="mb-4">
-                  The assistant endpoint did not answer. Check that the server is
-                  running and GEMINI_API_KEY is set; the drawer will use the
-                  cached audit meanwhile.
+                  {failed
+                    ? 'Gemini analysis is unavailable. Check that the AI service is running and GEMINI_API_KEY is configured.'
+                    : 'Analysis could not be loaded.'}
                 </Alert>
               )}
 
@@ -285,7 +301,7 @@ export function AssistantDrawer({ open, onClose }: AssistantDrawerProps) {
                             </div>
                             <button
                               type="button"
-                              onClick={() => act(insight)}
+                              onClick={() => void act(insight)}
                               disabled={done}
                               className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[10px] transition ${
                                 done

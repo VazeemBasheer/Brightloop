@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -13,6 +13,7 @@ import { Steps } from '../components/ui/Steps';
 import { Alert } from '../components/ui/Alert';
 import { Field } from '../components/ui/Field';
 import { useToast } from '../components/ui/Toast';
+import { api, setCurrentCustomer } from '../lib/api';
 
 const stepLabels = ['Account', 'Workspace', 'Plan', 'Ready'];
 
@@ -51,11 +52,11 @@ export default function Signup() {
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [duplicate, setDuplicate] = useState(false);
+  const [signupError, setSignupError] = useState<string | null>(null);
 
   const [account, setAccount] = useState({
     name: '',
     email: '',
-    password: '',
   });
   const [workspace, setWorkspace] = useState({
     company: '',
@@ -64,37 +65,17 @@ export default function Signup() {
   });
   const [plan, setPlan] = useState<string>('yearly');
 
-  const rules = useMemo(
-    () => [
-      { label: 'More than 8 characters', pass: account.password.length > 8 },
-      { label: 'One uppercase letter', pass: /[A-Z]/.test(account.password) },
-      { label: 'One lowercase letter', pass: /[a-z]/.test(account.password) },
-      {
-        label: 'One special character',
-        pass: /[!@#$%^&*(),.?":{}|<>]/.test(account.password),
-      },
-    ],
-    [account.password],
-  );
-
   const accountValid =
     account.name.trim().length > 1 &&
-    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(account.email) &&
-    rules.every((r) => r.pass);
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(account.email.trim());
 
-  const next = () => {
+  const next = async () => {
     if (step === 1) {
       const e: Record<string, string> = {};
       if (account.name.trim().length < 2) e.name = 'Tell us your name.';
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(account.email))
         e.email = 'Enter a valid email address.';
-      if (!rules.every((r) => r.pass))
-        e.password = 'Your password does not meet all four rules yet.';
       setErrors(e);
-      if (account.email.toLowerCase() === 'demo@brightloop.io') {
-        setDuplicate(true);
-        return;
-      }
       if (Object.keys(e).length) return;
       setDuplicate(false);
       setStep(2);
@@ -113,26 +94,43 @@ export default function Signup() {
 
     if (step === 3) {
       setBusy(true);
-      window.setTimeout(() => {
-        setBusy(false);
+      setSignupError(null);
+      try {
+        const { customer } = await api.createCustomer({
+          name: account.name.trim(),
+          email: account.email.trim(),
+          company: workspace.company.trim(),
+        });
+        setCurrentCustomer(customer.id);
         setStep(4);
         push({
           tone: 'success',
-          title: 'Workspace created',
-          description: `${workspace.company} is ready with the ${plan} plan.`,
+          title: 'Billing account created',
+          description: `${workspace.company} is now linked to the billing service.`,
         });
-      }, 800);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'The billing service did not create the account.';
+        if (message.toLowerCase().includes('already registered')) {
+          setDuplicate(true);
+          setErrors({ email: message });
+          setStep(1);
+        } else {
+          setSignupError(message);
+        }
+      } finally {
+        setBusy(false);
+      }
     }
   };
 
   return (
     <AuthShell
       wide
-      title={step === 4 ? 'You are all set' : 'Set up your workspace'}
+      title={step === 4 ? 'Billing profile created' : 'Set up your workspace'}
       subtitle={
         step === 4
-          ? 'Your billing controls, portal and AI audit are ready.'
-          : 'Four short steps. No credit card for the first 14 days.'
+          ? 'Your customer profile is saved in the billing service.'
+          : 'Create a customer profile and preview the setup flow.'
       }
       footer={
         <>
@@ -160,8 +158,18 @@ export default function Signup() {
             </Link>
           }
         >
-          Each email can belong to one Brightloop account. Reset your password if
-          you cannot get in.
+          This email already has a billing profile. Use the customer sign-in demo
+          with this email to open its portal.
+        </Alert>
+      )}
+      {signupError && (
+        <Alert
+          tone="error"
+          title="Could not create billing account"
+          onDismiss={() => setSignupError(null)}
+          className="mb-4"
+        >
+          {signupError}
         </Alert>
       )}
 
@@ -184,39 +192,12 @@ export default function Signup() {
             placeholder="you@company.com"
             value={account.email}
             error={errors.email}
-            onChange={(e) => setAccount({ ...account, email: e.target.value })}
+            onChange={(e) => {
+              setAccount({ ...account, email: e.target.value });
+              setErrors((current) => ({ ...current, email: '' }));
+              setDuplicate(false);
+            }}
           />
-          <Field
-            label="Password"
-            name="password"
-            type="password"
-            autoComplete="new-password"
-            placeholder="At least 9 characters"
-            value={account.password}
-            error={errors.password}
-            onChange={(e) => setAccount({ ...account, password: e.target.value })}
-          />
-          <div className="grid grid-cols-1 gap-2 rounded-lg border border-white/8 bg-white/[0.02] p-3 sm:grid-cols-2">
-            {rules.map((rule) => (
-              <div
-                key={rule.label}
-                className={`flex items-center gap-2 text-[11px] transition-colors ${
-                  rule.pass ? 'text-mint-400' : 'text-zinc-500'
-                }`}
-              >
-                <span
-                  className={`flex size-3.5 items-center justify-center rounded-full border ${
-                    rule.pass
-                      ? 'border-mint-500/60 bg-mint-500/20'
-                      : 'border-white/15'
-                  }`}
-                >
-                  {rule.pass && <Check className="size-2.5" strokeWidth={3} />}
-                </span>
-                {rule.label}
-              </div>
-            ))}
-          </div>
         </div>
       )}
 
@@ -273,8 +254,8 @@ export default function Signup() {
           <div className="flex items-start gap-2.5 rounded-lg border border-white/8 bg-white/[0.02] p-3">
             <Building2 className="mt-0.5 size-4 shrink-0 text-zinc-500" />
             <p className="text-[11px] leading-relaxed text-zinc-500">
-              This becomes your isolated workspace. Staff accounts are invited
-              later by an admin — never self-registered.
+              Only the company name is saved to your customer profile. Workspace
+              isolation and staff invitations are not available in this demo.
             </p>
           </div>
         </div>
@@ -314,8 +295,7 @@ export default function Signup() {
             </button>
           ))}
           <p className="pt-1 text-[11px] leading-relaxed text-zinc-600">
-            Plans bill through the same engine you are setting up. Change tiers
-            anytime from the admin dashboard.
+            This is a demo selection only; a subscription is not provisioned or billed.
           </p>
         </div>
       )}
@@ -338,9 +318,9 @@ export default function Signup() {
 
           <div className="rounded-xl border border-white/8">
             {[
-              ['Plan', plan.charAt(0).toUpperCase() + plan.slice(1)],
-              ['Trial', '14 days, no card required'],
-              ['Next step', 'Seed products and plans'],
+              ['Selected plan', plan.charAt(0).toUpperCase() + plan.slice(1)],
+              ['Provisioning', 'Not enabled in this demo'],
+              ['Next step', 'Open your customer portal'],
             ].map(([label, value], index) => (
               <div
                 key={label}
@@ -355,8 +335,8 @@ export default function Signup() {
           </div>
 
           <Alert tone="info" title="A note on this demo">
-            Accounts are not persisted server-side yet — the workspace opens with
-            seeded finance data so the flows are testable end to end.
+            Your customer profile is saved in the billing database. Password authentication,
+            workspace isolation and subscription-plan provisioning are not configured.
           </Alert>
 
           <div className="flex flex-col gap-2 sm:flex-row">
@@ -400,7 +380,7 @@ export default function Signup() {
               </>
             ) : step === 3 ? (
               <>
-                <Sparkles className="size-4" /> Create workspace
+                <Sparkles className="size-4" /> Create billing profile
               </>
             ) : (
               <>

@@ -11,7 +11,7 @@ export function RevenueChart({ data }: { data: RevenuePoint[] }) {
 
   const { max, points, area, line } = useMemo(() => {
     const values = data.flatMap((d) => [d.mrr, d.collected]);
-    const maxValue = Math.ceil(Math.max(...values) / 50_000) * 50_000;
+    const maxValue = Math.max(50_000, Math.ceil(Math.max(...values) / 50_000) * 50_000);
     const innerW = W - PAD.left - PAD.right;
     const innerH = H - PAD.top - PAD.bottom;
     const x = (i: number) =>

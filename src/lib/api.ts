@@ -1,21 +1,14 @@
-import {
-  activePlans,
-  agingBuckets,
-  kpis,
-  overdueInvoices,
-  planMix,
-  portalInvoices,
-  revenueSeries,
-  type ActivePlan,
-  type AgingBucket,
-  type AssistantAnalysis,
-  type BillingRunResult,
-  type Insight,
-  type Invoice,
-  type Kpi,
-  type PlanMixItem,
-  type PortalInvoice,
-  type RevenuePoint,
+import type {
+  ActivePlan,
+  AgingBucket,
+  AssistantAnalysis,
+  BillingRunResult,
+  Insight,
+  Invoice,
+  Kpi,
+  PlanMixItem,
+  PortalInvoice,
+  RevenuePoint,
 } from './data';
 
 export interface DashboardData {
@@ -25,194 +18,459 @@ export interface DashboardData {
   overdueInvoices: Invoice[];
   planMix: PlanMixItem[];
   asOf: string;
+  renewalsNext30Days: number;
+  renewalValueNext30Days: number;
+  billedTotal: number;
+  collectionRate: number;
+  overdueInvoiceCount: number;
+  queuedNoticeInvoiceIds: string[];
 }
 
 export interface PortalData {
+  customer: { id: string; name: string; company?: string };
   plans: ActivePlan[];
   invoices: PortalInvoice[];
 }
 
-/**
- * When Dev 2 ships the Express endpoints, set VITE_API_BASE in .env and every
- * screen here switches from the seeded adapter to live data with no other
- * changes. Endpoint paths match the implementation spec.
- */
-const apiBase = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(
-  /\/$/,
-  '',
-);
+interface SubscriptionLine {
+  productId: string;
+  productName: string;
+  variant?: string;
+  quantity: number;
+  activeUsers30Days?: number;
+  unitPrice: number;
+}
 
-const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+interface Subscription {
+  id: string;
+  customerId: string;
+  customerName: string;
+  planId: string;
+  status: string;
+  nextBillingDate: string;
+  lines: SubscriptionLine[];
+}
 
-async function request<T>(
-  path: string,
-  init: RequestInit | undefined,
-  fallback: () => T | Promise<T>,
-): Promise<T> {
-  if (apiBase) {
-    try {
-      const res = await fetch(`${apiBase}${path}`, {
-        headers: { 'Content-Type': 'application/json' },
-        ...init,
-      });
-      if (res.ok) return (await res.json()) as T;
-      console.warn(`[brightloop] ${path} responded ${res.status}; using seed.`);
-    } catch (error) {
-      console.warn(`[brightloop] ${path} unreachable; using seed.`, error);
-    }
+interface BackendInvoice {
+  id: string;
+  subscriptionId: string;
+  customerId: string;
+  customerName: string;
+  issueDate: string;
+  dueDate: string;
+  billingPeriod?: { start: string; end: string };
+  status: string;
+  totalAmount: number;
+  amountDue: number;
+  amountPaid: number;
+  taxTotal?: number;
+  items: Array<{ description: string; quantity: number; unitPrice: number }>;
+}
+
+interface BackendStats {
+  asOf: string;
+  mrrByPlan: Array<{
+    planId: string;
+    name: string;
+    activeSubscriptions: number;
+    mrr: number;
+  }>;
+  overview: {
+    mrr: number;
+    arr: number;
+    activeSubscriptions: number;
+    totalSubscriptions: number;
+    totalRevenue: number;
+    outstandingRevenue: number;
+    overdueInvoicesCount: number;
+    overdueRevenue: number;
+    totalCustomers: number;
+  };
+}
+
+interface BackendProduct {
+  id: string;
+  category: string;
+}
+
+interface GeminiFinding {
+  type: 'duplicate' | 'zombie' | 'upgrade';
+  tool: string;
+  savingEstimate: number;
+  recommendation: string;
+  confidence: number;
+}
+
+const apiBase = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, '') ?? '';
+const aiApiBase = (import.meta.env.VITE_AI_API_BASE as string | undefined)?.replace(/\/$/, '') ?? '/ai-api';
+const customerStorageKey = 'brightloop.customerId';
+
+async function request<T>(base: string, path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${base}${path}`, {
+    ...init,
+    headers: {
+      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+      ...init?.headers,
+    },
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { error?: string; message?: string } | null;
+    throw new Error(body?.error || body?.message || `${path} failed (${response.status})`);
   }
-  return fallback();
+
+  return response.json() as Promise<T>;
+}
+
+const backend = <T>(path: string, init?: RequestInit) => request<T>(apiBase, path, init);
+const aiService = <T>(path: string, init?: RequestInit) => request<T>(aiApiBase, path, init);
+const jsonBody = (body: unknown): RequestInit => ({
+  method: 'POST',
+  body: JSON.stringify(body),
+});
+
+const today = () => new Date().toISOString().slice(0, 10);
+const dayDifference = (date: string) =>
+  Math.floor((Date.parse(`${today()}T00:00:00Z`) - Date.parse(`${date}T00:00:00Z`)) / 86_400_000);
+const initials = (name: string) =>
+  name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+const frequencyFor = (planId: string): ActivePlan['frequency'] => {
+  if (planId.includes('year')) return 'Yearly';
+  if (planId.includes('quarter')) return 'Quarterly';
+  return 'Monthly';
+};
+
+function mapInvoice(invoice: BackendInvoice): Invoice {
+  const daysOverdue = dayDifference(invoice.dueDate);
+  return {
+    id: invoice.id,
+    customer: invoice.customerName,
+    initials: initials(invoice.customerName),
+    plan: invoice.items.map((item) => item.description).join(', ') || invoice.subscriptionId,
+    amount: invoice.amountDue,
+    dueDate: invoice.dueDate,
+    daysOverdue,
+    status: daysOverdue > 0 ? 'overdue' : 'sent',
+  };
+}
+
+function mapPortalInvoice(invoice: BackendInvoice): PortalInvoice {
+  return {
+    id: invoice.id,
+    period: invoice.billingPeriod?.start
+      ? new Date(`${invoice.billingPeriod.start}T00:00:00`).toLocaleString('en-US', { month: 'short', year: 'numeric' })
+      : invoice.issueDate,
+    issued: invoice.issueDate,
+    amount: invoice.totalAmount,
+    status: invoice.amountDue <= 0 ? 'paid' : dayDifference(invoice.dueDate) > 0 ? 'overdue' : 'due',
+  };
+}
+
+function mapSubscriptionPlan(subscription: Subscription): ActivePlan {
+  const seats = subscription.lines.reduce((sum, line) => sum + line.quantity, 0);
+  const activeUsers = subscription.lines.reduce((sum, line) => sum + (line.activeUsers30Days ?? line.quantity), 0);
+  const price = subscription.lines.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0);
+  const status = subscription.status.toLowerCase();
+  return {
+    id: subscription.id,
+    product: subscription.lines.map((line) => line.productName).join(' · ') || 'Subscription',
+    variant: subscription.lines.map((line) => line.variant).filter(Boolean).join(' · ') || subscription.planId,
+    frequency: frequencyFor(subscription.planId),
+    seats,
+    price,
+    renewsOn: subscription.nextBillingDate,
+    status: status === 'active' ? 'active' : status === 'trial' ? 'trial' : 'paused',
+    usage: seats ? Math.round((activeUsers / seats) * 100) : 0,
+  };
+}
+
+function makeDashboard(
+  stats: BackendStats,
+  subscriptions: Subscription[],
+  backendInvoices: BackendInvoice[],
+  notices: Array<{ invoiceId: string }>,
+): DashboardData {
+  const metrics = stats.overview;
+  const currentMonth = new Date().toLocaleString('en-US', { month: 'short' });
+  const kpis: Kpi[] = [
+    {
+      id: 'mrr',
+      label: 'Monthly recurring revenue',
+      value: metrics.mrr,
+      format: 'currency',
+      delta: 0,
+      deltaLabel: 'live from billing engine',
+      trend: 'flat',
+      hint: `ARR ${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(metrics.arr)}.`,
+    },
+    {
+      id: 'active',
+      label: 'Active subscriptions',
+      value: metrics.activeSubscriptions,
+      format: 'number',
+      delta: 0,
+      deltaLabel: `of ${metrics.totalSubscriptions} total`,
+      trend: 'flat',
+      hint: `${metrics.totalCustomers} customers in the billing database.`,
+    },
+    {
+      id: 'overdue',
+      label: 'Overdue invoices',
+      value: metrics.overdueRevenue,
+      format: 'currency',
+      delta: 0,
+      deltaLabel: `${metrics.overdueInvoicesCount} invoices past due`,
+      trend: 'flat',
+      hint: 'Outstanding balances past their due date.',
+    },
+    {
+      id: 'collected',
+      label: 'Collected to date',
+      value: metrics.totalRevenue,
+      format: 'currency',
+      delta: 0,
+      deltaLabel: 'recorded payments',
+      trend: 'flat',
+      hint: `Total outstanding: ${metrics.outstandingRevenue.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}.`,
+    },
+  ];
+
+  const unsettled = backendInvoices.filter((invoice) => invoice.amountDue > 0);
+  const buckets: AgingBucket[] = [
+    { label: 'Current', amount: 0, invoices: 0, tone: 'mint' },
+    { label: '1–30 days', amount: 0, invoices: 0, tone: 'amber' },
+    { label: '31–60 days', amount: 0, invoices: 0, tone: 'ember' },
+    { label: '60+ days', amount: 0, invoices: 0, tone: 'brand' },
+  ];
+  for (const invoice of unsettled) {
+    const days = dayDifference(invoice.dueDate);
+    const bucket = buckets[days <= 0 ? 0 : days <= 30 ? 1 : days <= 60 ? 2 : 3];
+    bucket.amount += invoice.amountDue;
+    bucket.invoices += 1;
+  }
+
+  const colors = ['#7c6deb', '#3ec79a', '#e9b464', '#69a9e8'];
+  const planMix: PlanMixItem[] = stats.mrrByPlan.map((plan, index) => ({
+    name: plan.name,
+    accounts: plan.activeSubscriptions,
+    mrr: plan.mrr,
+    share: metrics.mrr ? Math.round((plan.mrr / metrics.mrr) * 100) : 0,
+    color: colors[index % colors.length],
+  }));
+  const renewalLimit = Date.now() + 30 * 86_400_000;
+  const upcoming = subscriptions.filter((subscription) =>
+    subscription.status === 'Active'
+    && Date.parse(`${subscription.nextBillingDate}T00:00:00`) <= renewalLimit
+    && Date.parse(`${subscription.nextBillingDate}T00:00:00`) >= Date.now(),
+  );
+  const renewalValueNext30Days = upcoming.reduce((total, subscription) =>
+    total + subscription.lines.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0), 0);
+  const overdueInvoices = unsettled
+    .map(mapInvoice)
+    .sort((a, b) => b.daysOverdue - a.daysOverdue);
+  const billedTotal = backendInvoices.reduce((sum, invoice) => sum + invoice.totalAmount, 0);
+  const collectedTotal = backendInvoices.reduce((sum, invoice) => sum + invoice.amountPaid, 0);
+
+  return {
+    kpis,
+    revenue: [{ month: currentMonth, mrr: metrics.mrr, collected: metrics.totalRevenue }],
+    aging: buckets,
+    overdueInvoices,
+    planMix,
+    asOf: stats.asOf,
+    renewalsNext30Days: upcoming.length,
+    renewalValueNext30Days,
+    billedTotal,
+    collectionRate: billedTotal ? Math.round((collectedTotal / billedTotal) * 100) : 0,
+    overdueInvoiceCount: metrics.overdueInvoicesCount,
+    queuedNoticeInvoiceIds: [...new Set(notices.map((notice) => notice.invoiceId))],
+  };
+}
+
+function mapInsight(value: GeminiFinding, index: number): Insight {
+  const tone: Insight['tone'] = value.type === 'zombie' || value.type === 'duplicate' ? 'risk' : 'opportunity';
+  const title = value.type === 'zombie'
+    ? 'Low-usage subscription'
+    : value.type === 'duplicate'
+      ? 'Potential duplicate tools'
+      : 'Annual billing opportunity';
+  return {
+    id: `gemini-${index}`,
+    tone,
+    title,
+    vendor: value.tool,
+    detail: value.recommendation,
+    savingsPerYear: value.savingEstimate,
+    action: 'Draft vendor email',
+    confidence: value.confidence,
+  };
 }
 
 export const api = {
-  getDashboard: () =>
-    request<DashboardData>('/api/finance/overview', undefined, async () => {
-      await wait(320);
-      return {
-        kpis,
-        revenue: revenueSeries,
-        aging: agingBuckets,
-        overdueInvoices,
-        planMix,
-        asOf: new Date().toISOString(),
-      };
-    }),
+  getDashboard: async () => {
+    const [stats, subscriptions, invoices, notices] = await Promise.all([
+      backend<BackendStats>('/api/stats'),
+      backend<Subscription[]>('/api/subscriptions'),
+      backend<BackendInvoice[]>('/api/invoices'),
+      backend<Array<{ invoiceId: string }>>('/api/notices'),
+    ]);
+    return makeDashboard(stats, subscriptions, invoices, notices);
+  },
 
-  getPortal: () =>
-    request<PortalData>('/api/portal/me', undefined, async () => {
-      await wait(280);
-      return { plans: activePlans, invoices: portalInvoices };
-    }),
+  getPortal: async (customerId = localStorage.getItem(customerStorageKey) || 'cust-101') => {
+    const [customers, subscriptions, invoices] = await Promise.all([
+      backend<Array<{ id: string; name: string; company?: string }>>('/api/customers'),
+      backend<Subscription[]>(`/api/subscriptions?customerId=${encodeURIComponent(customerId)}`),
+      backend<BackendInvoice[]>(`/api/invoices?customerId=${encodeURIComponent(customerId)}`),
+    ]);
+    const customer = customers.find((item) => item.id === customerId);
+    if (!customer) throw new Error(`Customer ${customerId} was not found`);
+    return {
+      customer,
+      plans: subscriptions.map(mapSubscriptionPlan),
+      invoices: invoices.map(mapPortalInvoice).sort((a, b) => b.issued.localeCompare(a.issued)),
+    };
+  },
 
-  runBillingDay: (customerId = 'cus_aster') =>
-    request<BillingRunResult>(
-      '/api/billing/run',
-      { method: 'POST', body: JSON.stringify({ customerId }) },
-      async () => {
-        await wait(1400);
-        const totalBilled = activePlans
-          .filter((p) => p.status !== 'paused')
-          .reduce((sum, p) => sum + p.price, 0);
-        return {
-          runId: `RUN-${Date.now().toString().slice(-6)}`,
-          generatedAt: new Date().toISOString(),
-          invoicesCreated: 2,
-          totalBilled,
-          taxCollected: Math.round(totalBilled * 0.15),
-          skippedDuplicates: 1,
-          invoices: [
-            {
-              id: `INV-${Date.now().toString().slice(-5)}`,
-              period: 'Oct 2026',
-              issued: new Date().toISOString().slice(0, 10),
-              amount: totalBilled,
-              status: 'due',
-            },
-          ],
-        };
-      },
+  findCustomerByEmail: async (email: string) => {
+    const customers = await backend<Array<{ id: string; name: string; email: string }>>('/api/customers');
+    return customers.find((customer) => customer.email.toLowerCase() === email.toLowerCase()) ?? null;
+  },
+
+  createCustomer: (customer: { name: string; email: string; company: string }) =>
+    backend<{ success: boolean; customer: { id: string; name: string; email: string } }>(
+      '/api/customers',
+      jsonBody(customer),
     ),
+
+  runBillingDay: async (customerId = localStorage.getItem(customerStorageKey) || 'cust-101') => {
+    const result = await backend<{
+      success: boolean;
+      runDate: string;
+      invoicesGeneratedCount: number;
+      totalBilledAmount: number;
+      generatedInvoices: BackendInvoice[];
+      skipped: Array<{ reason: string }>;
+    }>('/api/run-billing', jsonBody({ customerId, forceAllActive: true }));
+    return {
+      runId: `RUN-${result.runDate.replaceAll('-', '')}`,
+      generatedAt: result.runDate,
+      invoicesCreated: result.invoicesGeneratedCount,
+      totalBilled: result.totalBilledAmount,
+      taxCollected: result.generatedInvoices.reduce((sum, invoice) => sum + (invoice.taxTotal ?? 0), 0),
+      skippedDuplicates: result.skipped.filter((item) => item.reason.startsWith('Duplicate prevented')).length,
+      invoices: result.generatedInvoices.map(mapPortalInvoice),
+    } satisfies BillingRunResult;
+  },
 
   sendOverdueNotice: (invoiceId: string) =>
-    request<{ invoiceId: string; queuedAt: string }>(
-      `/api/invoices/${invoiceId}/notices`,
-      { method: 'POST' },
-      async () => {
-        await wait(600);
-        return { invoiceId, queuedAt: new Date().toISOString() };
-      },
+    backend<{ invoiceId: string; queuedAt: string }>(
+      `/api/invoices/${encodeURIComponent(invoiceId)}/notices`,
+      jsonBody({}),
     ),
 
-  getAnalysis: (scope = 'portfolio') =>
-    request<AssistantAnalysis>(
-      '/api/assistant/analyze',
-      { method: 'POST', body: JSON.stringify({ scope }) },
-      async () => {
-        await wait(900);
-        return analysis;
-      },
+  payInvoice: (invoiceId: string) =>
+    backend<{ success: boolean; invoice: BackendInvoice }>(
+      `/api/invoices/${encodeURIComponent(invoiceId)}/pay`,
+      jsonBody({}),
     ),
 
-  askAssistant: (message: string) =>
-    request<{ reply: string }>(
-      '/api/assistant/chat',
-      { method: 'POST', body: JSON.stringify({ message }) },
-      async () => {
-        await wait(750);
-        return { reply: heuristicReply(message) };
-      },
+  getAnalysis: async (): Promise<AssistantAnalysis> => {
+    const [subscriptions, products] = await Promise.all([
+      backend<Subscription[]>('/api/subscriptions'),
+      backend<BackendProduct[]>('/api/products'),
+    ]);
+    const categories = new Map(products.map((product) => [product.id, product.category]));
+    const findings = await aiService<GeminiFinding[]>(
+      '/analyze-spending',
+      jsonBody({
+        subscriptions: subscriptions.flatMap((subscription) =>
+          subscription.lines.map((line) => ({
+            name: line.productName,
+            category: categories.get(line.productId) ?? line.productId,
+            cost: line.unitPrice * line.quantity,
+            billing: frequencyFor(subscription.planId).toLowerCase(),
+            seats: line.quantity,
+            activeUsers: line.activeUsers30Days ?? line.quantity,
+          })),
+        ),
+      }),
+    );
+    if (!Array.isArray(findings) || findings.some((finding) =>
+      !finding
+      || !['duplicate', 'zombie', 'upgrade'].includes(finding.type)
+      || typeof finding.tool !== 'string'
+      || typeof finding.recommendation !== 'string'
+      || !Number.isFinite(finding.savingEstimate)
+      || !Number.isFinite(finding.confidence)
+      || finding.confidence < 0
+      || finding.confidence > 1
+    )) {
+      throw new Error('Gemini returned findings in an unexpected format.');
+    }
+    const insights = findings.map(mapInsight);
+    return {
+      generatedAt: new Date().toISOString(),
+      model: 'gemini-2.5-flash',
+      summary: insights.length
+        ? `Gemini analysed ${subscriptions.length} live subscriptions and found ${insights.length} opportunities.`
+        : `Gemini analysed ${subscriptions.length} live subscriptions and found no recommendations.`,
+      annualSavings: insights.reduce((sum, insight) => sum + insight.savingsPerYear, 0),
+      insights,
+    };
+  },
+
+  askAssistant: async (message: string) => {
+    const [subscriptions, stats, invoices] = await Promise.all([
+      backend<Subscription[]>('/api/subscriptions'),
+      backend<BackendStats>('/api/stats'),
+      backend<BackendInvoice[]>('/api/invoices'),
+    ]);
+    return aiService<{ reply: string }>(
+      '/chat',
+      jsonBody({
+        message,
+        portfolio: {
+          metrics: stats.overview,
+          subscriptions: subscriptions.map((subscription) => ({
+            customer: subscription.customerName,
+            status: subscription.status,
+            nextBillingDate: subscription.nextBillingDate,
+            products: subscription.lines.map((line) => ({
+              name: line.productName,
+              seats: line.quantity,
+              activeUsers: line.activeUsers30Days ?? line.quantity,
+              unitPrice: line.unitPrice,
+            })),
+          })),
+          invoices: invoices.map((invoice) => ({
+            id: invoice.id,
+            customer: invoice.customerName,
+            dueDate: invoice.dueDate,
+            status: invoice.status,
+            total: invoice.totalAmount,
+            amountDue: invoice.amountDue,
+          })),
+        },
+      }),
+    );
+  },
+
+  draftEmail: (insight: Insight) =>
+    aiService<{ emailDraft: string }>(
+      '/draft-email',
+      jsonBody({
+        vendorName: insight.vendor,
+        action: insight.action,
+        context: insight.detail,
+      }),
     ),
 };
 
-const analysis: AssistantAnalysis = {
-  generatedAt: new Date().toISOString(),
-  model: 'gemini-3.8-flash',
-  summary:
-    'I audited 1,248 active subscriptions. Four issues account for most of the leakage: duplicate collaboration tools, one zombie video plan, 30 unassigned Slack seats, and 14 vendors still on monthly billing that offer annual terms.',
-  annualSavings: 31_560,
-  insights: [
-    {
-      id: 'ins-1',
-      tone: 'risk',
-      title: 'Duplicate collaboration stacks',
-      vendor: 'Notion + Confluence',
-      detail:
-        'Both tools are billed to overlapping teams. Consolidating on Notion would shut down 214 unused Confluence seats.',
-      savingsPerYear: 12_480,
-      action: 'Draft consolidation plan',
-      confidence: 0.94,
-    },
-    {
-      id: 'ins-2',
-      tone: 'opportunity',
-      title: 'Unassigned seats on Slack',
-      vendor: 'Slack Business+',
-      detail:
-        '210 seats are assigned out of 240 provisioned. Right-size the contract at renewal for an immediate credit.',
-      savingsPerYear: 8_640,
-      action: 'Right-size seats',
-      confidence: 0.88,
-    },
-    {
-      id: 'ins-3',
-      tone: 'risk',
-      title: 'Zombie subscription detected',
-      vendor: 'Loom Enterprise',
-      detail:
-        'No logins in 63 days across 34 seats, yet the yearly term auto-renews on 12 Nov.',
-      savingsPerYear: 6_120,
-      action: 'Pause before renewal',
-      confidence: 0.91,
-    },
-    {
-      id: 'ins-4',
-      tone: 'opportunity',
-      title: 'Switch monthly terms to annual',
-      vendor: 'Figma, Linear, Vercel',
-      detail:
-        'All three vendors price annual contracts 15–20% below the monthly equivalent. Cash-flow positive within one quarter.',
-      savingsPerYear: 4_320,
-      action: 'Negotiate annual terms',
-      confidence: 0.82,
-    },
-  ],
-};
-
-function heuristicReply(input: string): string {
-  const q = input.toLowerCase();
-  if (q.includes('overdue') || q.includes('chase') || q.includes('collect')) {
-    return '17 invoices worth $38,450 are past due. Northwind Retail alone is 74 days late on $12,480 — that is the one to escalate to a call today. The 1–30 day bucket only needs a reminder cadence.';
-  }
-  if (q.includes('save') || q.includes('cut') || q.includes('waste')) {
-    return 'The fastest win is the Slack seat mismatch: 30 unassigned seats is $8,640 a year. After that, pausing Loom before its 12 Nov renewal avoids $6,120. Together that is $14,760 without changing how anyone works.';
-  }
-  if (q.includes('renew') || q.includes('next month')) {
-    return '23 subscriptions renew in the next 30 days, totalling $41,280. Two of them — Slack and Loom — are candidates to pause or renegotiate first.';
-  }
-  if (q.includes('mrr') || q.includes('revenue') || q.includes('arr')) {
-    return 'MRR is $486,200, up 6.4% month over month, putting ARR at $5.83M. Platinum Edition drives 44% of it. Collected cash this month is $412,900, so roughly $73.3k is still receivable.';
-  }
-  return 'Looking at the portfolio: MRR $486,200, 1,248 active subscriptions, $38,450 overdue. The biggest lever right now is the duplicate collaboration spend — $12,480 a year with no change to how the team works. Want me to draft the cancellation letter?';
+export function setCurrentCustomer(customerId: string) {
+  localStorage.setItem(customerStorageKey, customerId);
 }
 
-export type { Insight };
+export function clearCurrentCustomer() {
+  localStorage.removeItem(customerStorageKey);
+}

@@ -18,6 +18,10 @@ console.log('Initial Stats:', initialStats.overview);
 
 assert(initialStats.overview.activeSubscriptions > 0, 'Active subscriptions count is positive');
 assert(initialStats.overview.mrr > 0, 'MRR is calculated and positive');
+assert(
+  Math.abs(initialStats.mrrByPlan.reduce((sum, plan) => sum + plan.mrr, 0) - initialStats.overview.mrr) < 0.01,
+  'Plan-level MRR reconciles with total MRR'
+);
 assert(initialStats.overview.overdueInvoicesCount > 0, 'Overdue invoices exist in seed data');
 assert(initialStats.overview.totalRevenue > 0, 'Total revenue collected is positive');
 
@@ -61,5 +65,13 @@ console.log('Updated Stats Overview:', postStats.overview);
 assert(postStats.overview.outstandingRevenue > initialStats.overview.outstandingRevenue, 'Outstanding revenue increased after billing run');
 assert(postStats.invoicesBreakdown.total === db.invoices.length, 'Total invoice count in stats matches db');
 
-console.log(' ALL DEV 2 VERIFICATION TESTS PASSED SUCCESSFULLY!\n');
+console.log('\n--- 5. Testing Customer-Scoped Billing ---');
+resetDatabase();
+const customerRun = runBilling({ forceAllActive: true, customerId: 'cust-101' });
+assert(customerRun.invoicesGeneratedCount > 0, 'Customer-scoped billing generated invoices');
+assert(
+  customerRun.generatedInvoices.every(invoice => invoice.customerId === 'cust-101'),
+  'Customer-scoped billing did not bill other customers'
+);
 
+console.log(' ALL DEV 2 VERIFICATION TESTS PASSED SUCCESSFULLY!\n');

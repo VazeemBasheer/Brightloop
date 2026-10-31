@@ -16,6 +16,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { Brand } from '../Brand';
 import { useAssistant } from './AssistantContext';
 import { useToast } from '../ui/Toast';
+import { clearCurrentCustomer } from '../../lib/api';
 
 const navItems = [
   { label: 'Overview', to: '/app', hash: '', icon: LayoutDashboard },
@@ -40,14 +41,14 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           className="flex w-full items-center gap-3 rounded-xl border border-white/8 bg-white/[0.02] p-2.5 text-left transition hover:border-white/14 hover:bg-white/[0.04]"
         >
           <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-brand-400 to-brand-600 text-[11px] font-semibold text-white">
-            AC
+            BL
           </span>
           <span className="min-w-0 flex-1">
             <span className="block truncate text-xs font-medium text-zinc-200">
-              Aster &amp; Co.
+              Brightloop
             </span>
             <span className="block truncate text-[10px] text-zinc-500">
-              Finance workspace
+              Billing workspace
             </span>
           </span>
           <ChevronDown className="size-3.5 text-zinc-600" />
@@ -109,7 +110,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             <ArrowUpRight className="ml-auto size-3.5 text-zinc-600 transition group-hover:text-brand-300" />
           </div>
           <p className="mt-1.5 text-[10px] leading-relaxed text-zinc-500">
-            4 findings · $31,560 a year in recoverable spend
+            Analyze live subscriptions and billing data
           </p>
         </button>
       </nav>
@@ -126,6 +127,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           </div>
           <Link
             to="/login"
+            onClick={clearCurrentCustomer}
             className="rounded-md px-2 py-1 text-[10px] text-zinc-500 transition hover:bg-white/5 hover:text-zinc-200"
           >
             Sign out

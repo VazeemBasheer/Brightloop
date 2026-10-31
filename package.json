@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "vite",
     "dev:server": "node src/server.js",
+    "dev:ai": "node ai-server.mjs",
     "start": "node src/server.js",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",

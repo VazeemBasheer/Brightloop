@@ -211,6 +211,31 @@ app.post('/api/invoices/:id/pay', (req, res) => {
   });
 });
 
+app.post('/api/invoices/:id/notices', (req, res) => {
+  const invoice = db.invoices.find(inv => inv.id === req.params.id);
+  if (!invoice) {
+    return res.status(404).json({ error: `Invoice ${req.params.id} not found` });
+  }
+  if (invoice.amountDue <= 0) {
+    return res.status(400).json({ error: `Invoice ${invoice.id} has no outstanding balance` });
+  }
+
+  const notice = {
+    id: `NOTICE-${(db.notices.length + 1).toString().padStart(4, '0')}`,
+    invoiceId: invoice.id,
+    customerId: invoice.customerId,
+    queuedAt: new Date().toISOString(),
+    status: 'queued'
+  };
+  db.notices.push(notice);
+  saveDatabase();
+  return res.status(202).json(notice);
+});
+
+app.get('/api/notices', (req, res) => {
+  return res.status(200).json(db.notices);
+});
+
 // ==========================================
 // 5. CUSTOMER & SUBSCRIPTION CREATION (Dev 1 Integration)
 // ==========================================
@@ -219,17 +244,25 @@ app.post('/api/invoices/:id/pay', (req, res) => {
  * Allows Dev 1 to add new customers via their signup or admin form
  */
 app.post('/api/customers', (req, res) => {
-  if (!req.body.name || !req.body.email) {
-    return res.status(400).json({ error: 'Name and email are required' });
+  const { name, email, company, role, address } = req.body || {};
+  const normalizedEmail = typeof email === 'string' ? email.trim() : '';
+  if (typeof name !== 'string' || !name.trim()
+    || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+    return res.status(400).json({ error: 'A name and valid email are required' });
+  }
+  if (db.customers.some(customer => customer.email.toLowerCase() === normalizedEmail.toLowerCase())) {
+    return res.status(409).json({ error: 'Email is already registered' });
   }
 
   const newCustomer = {
     id: `cust-${db.customers.length + 101}`,
-    name: req.body.name,
-    email: req.body.email,
-    role: req.body.role || 'customer',
-    company: req.body.company || req.body.name,
-    address: req.body.address || 'Address pending'
+    name: name.trim(),
+    email: normalizedEmail,
+    role: role || 'customer',
+    company: typeof company === 'string' && company.trim()
+      ? company.trim()
+      : name.trim(),
+    address: address || 'Address pending'
   };
 
   db.customers.push(newCustomer);
@@ -307,4 +340,3 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 module.exports = app;
-

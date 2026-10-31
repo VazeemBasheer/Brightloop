@@ -14,6 +14,7 @@ function getStats() {
 
   // Calculate MRR (Monthly Recurring Revenue)
   let mrr = 0;
+  const mrrByPlan = new Map();
   for (const sub of activeSubs) {
     const plan = db.plans.find(p => p.id === sub.planId) || { intervalMonths: 1 };
     
@@ -36,6 +37,16 @@ function getStats() {
     // Normalize to monthly
     const monthlyValue = discounted / (plan.intervalMonths || 1);
     mrr += monthlyValue;
+
+    const breakdown = mrrByPlan.get(sub.planId) || {
+      planId: sub.planId,
+      name: plan.name || sub.planId,
+      activeSubscriptions: 0,
+      mrr: 0
+    };
+    breakdown.activeSubscriptions++;
+    breakdown.mrr += monthlyValue;
+    mrrByPlan.set(sub.planId, breakdown);
   }
   mrr = Number(mrr.toFixed(2));
   const arr = Number((mrr * 12).toFixed(2));
@@ -92,6 +103,10 @@ function getStats() {
       overdueRevenue: overdueRevenue,        // $ amount overdue
       totalCustomers: db.customers.length
     },
+    mrrByPlan: Array.from(mrrByPlan.values()).map(plan => ({
+      ...plan,
+      mrr: Number(plan.mrr.toFixed(2))
+    })),
     invoicesBreakdown: {
       total: db.invoices.length,
       paid: paidInvoicesCount,
@@ -113,4 +128,3 @@ function getStats() {
 module.exports = {
   getStats
 };
-

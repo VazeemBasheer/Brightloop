@@ -646,7 +646,8 @@ const db = {
       paymentDate: "2026-10-05",
       note: "Full payment received via Wire Transfer"
     }
-  ]
+  ],
+  notices: []
 };
 
 // Deep copy helper to reset database for clean testing/demoing
@@ -686,6 +687,7 @@ function loadDatabase() {
       db.subscriptions = parsed.subscriptions || db.subscriptions;
       db.invoices = parsed.invoices || db.invoices;
       db.payments = parsed.payments || db.payments;
+      db.notices = parsed.notices || db.notices;
     } else {
       saveDatabase();
     }
@@ -704,6 +706,7 @@ function resetDatabase() {
   db.subscriptions = JSON.parse(JSON.stringify(initialSnapshot.subscriptions));
   db.invoices = JSON.parse(JSON.stringify(initialSnapshot.invoices));
   db.payments = JSON.parse(JSON.stringify(initialSnapshot.payments));
+  db.notices = JSON.parse(JSON.stringify(initialSnapshot.notices));
   saveDatabase();
 }
 
@@ -715,4 +718,3 @@ module.exports = {
   resetDatabase,
   saveDatabase
 };
-

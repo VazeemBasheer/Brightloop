@@ -26,12 +26,18 @@ export default function Portal() {
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<BillingRunResult | null>(null);
   const [pausedNotice, setPausedNotice] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [paying, setPaying] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
-    api.getPortal().then((value) => {
-      if (alive) setData(value);
-    });
+    api.getPortal()
+      .then((value) => {
+        if (alive) setData(value);
+      })
+      .catch((error: unknown) => {
+        if (alive) setLoadError(error instanceof Error ? error.message : 'Portal data could not be loaded.');
+      });
     return () => {
       alive = false;
     };
@@ -40,32 +46,83 @@ export default function Portal() {
   const runBilling = async () => {
     setRunning(true);
     setResult(null);
-    const run = await api.runBillingDay();
-    setResult(run);
-    setData((current) =>
-      current
-        ? { ...current, invoices: [...run.invoices, ...current.invoices] }
-        : current,
-    );
-    setRunning(false);
-    push({
-      tone: 'success',
-      title: `${run.invoicesCreated} invoices generated`,
-      description: `${usd(run.totalBilled)} billed · ${run.skippedDuplicates} duplicate skipped by the period lock.`,
-    });
+    try {
+      if (!data) return;
+      const run = await api.runBillingDay(data.customer.id);
+      setResult(run);
+      setData(await api.getPortal(data.customer.id));
+      push({
+        tone: run.invoicesCreated ? 'success' : 'info',
+        title: run.invoicesCreated ? `${run.invoicesCreated} invoices generated` : 'No new invoices generated',
+        description: `${usd(run.totalBilled)} billed · ${run.skippedDuplicates} duplicate billing attempts skipped.`,
+      });
+    } catch (error) {
+      push({
+        tone: 'error',
+        title: 'Billing run failed',
+        description: error instanceof Error ? error.message : 'The billing service did not complete the run.',
+      });
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const payInvoice = async (invoiceId: string) => {
+    if (!data) return;
+    setPaying(invoiceId);
+    try {
+      await api.payInvoice(invoiceId);
+      setData(await api.getPortal(data.customer.id));
+      push({ tone: 'success', title: 'Payment recorded', description: `${invoiceId} is now updated in the billing account.` });
+    } catch (error) {
+      push({
+        tone: 'error',
+        title: 'Payment failed',
+        description: error instanceof Error ? error.message : 'The billing service did not record the payment.',
+      });
+    } finally {
+      setPaying(null);
+    }
+  };
+
+  const downloadStatement = () => {
+    if (!data) return;
+    const rows = [
+      ['Invoice', 'Billing period', 'Issued', 'Amount', 'Status'],
+      ...data.invoices.map((invoice) => [
+        invoice.id,
+        invoice.period,
+        invoice.issued,
+        String(invoice.amount),
+        invoice.status,
+      ]),
+    ];
+    const csv = rows
+      .map((row) => row.map((cell) => `"${cell.replaceAll('"', '""')}"`).join(','))
+      .join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${data.customer.id}-statement.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    push({ tone: 'success', title: 'Statement downloaded', description: 'Invoice history exported as CSV.' });
   };
 
   const activeCount = data?.plans.filter((p) => p.status === 'active').length ?? 0;
   const seats = data?.plans.reduce((sum, p) => sum + p.seats, 0) ?? 0;
-  const nextCharge = data?.invoices.find((i) => i.status === 'due');
+  const nextCharge = data?.invoices.find((i) => i.status === 'due' || i.status === 'overdue');
+  const pausedPlan = data?.plans.find((plan) => plan.status === 'paused');
+
+  const customerName = data?.customer.company || data?.customer.name || 'Customer account';
 
   return (
-    <AppShell title="Customer portal" subtitle="Aster & Co. · cus_aster_0041">
+    <AppShell title="Customer portal" subtitle={data ? `${customerName} · ${data.customer.id}` : 'Loading customer account'}>
       <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
         <div>
           <p className="eyebrow">Customer portal · self-serve</p>
           <h1 className="mt-2.5 text-2xl font-medium tracking-[-0.03em] text-white sm:text-[28px]">
-            Aster &amp; Co.
+            {customerName}
           </h1>
           <p className="mt-1.5 max-w-md text-[13px] text-zinc-500">
             Your plans, invoices and renewals. No emails required.
@@ -93,10 +150,16 @@ export default function Portal() {
         </button>
       </div>
 
-      {pausedNotice && data?.plans.some((p) => p.status === 'paused') && (
+      {loadError && (
+        <Alert tone="error" title="Portal data unavailable" className="mt-6">
+          {loadError} Confirm the billing API is running on port 5000, then refresh.
+        </Alert>
+      )}
+
+      {pausedNotice && pausedPlan && (
         <Alert
           tone="warning"
-          title="A storage add-on is paused"
+          title={`${pausedPlan.product} is not active`}
           className="mt-6"
           onDismiss={() => setPausedNotice(false)}
           action={
@@ -104,26 +167,16 @@ export default function Portal() {
               <button
                 type="button"
                 onClick={() => {
-                  setData((current) =>
-                    current
-                      ? {
-                          ...current,
-                          plans: current.plans.map((p) =>
-                            p.status === 'paused' ? { ...p, status: 'active' } : p,
-                          ),
-                        }
-                      : current,
-                  );
                   setPausedNotice(false);
                   push({
-                    tone: 'success',
-                    title: 'Storage add-on resumed',
-                    description: 'It will be included in the next billing run.',
+                    tone: 'info',
+                    title: 'Contact your account administrator',
+                    description: 'Plan changes are not currently available from this portal.',
                   });
                 }}
                 className="inline-flex items-center gap-1.5 rounded-md border border-amber-soft/40 bg-amber-soft/10 px-3 py-1.5 text-[11px] text-amber-soft transition hover:bg-amber-soft/20"
               >
-                <PlayCircle className="size-3.5" /> Resume add-on
+                <PlayCircle className="size-3.5" /> Ask about this plan
               </button>
               <button
                 type="button"
@@ -135,8 +188,7 @@ export default function Portal() {
             </>
           }
         >
-          Billing for the 1 TB block stopped on 12 Oct. You can resume it before
-          the 4 Nov cycle or leave it off and keep the current storage tier.
+          This subscription is not included in billing runs. Contact your account administrator if you need to change its status.
         </Alert>
       )}
 
@@ -191,7 +243,7 @@ export default function Portal() {
           {
             label: 'Active plans',
             value: data ? `${activeCount} of ${data.plans.length}` : '—',
-            hint: 'One add-on currently paused',
+            hint: `${data?.plans.filter((p) => p.status !== 'active').length ?? 0} inactive or trial plans`,
             icon: ReceiptText,
           },
           {
@@ -342,16 +394,11 @@ export default function Portal() {
           </div>
           <button
             type="button"
-            onClick={() =>
-              push({
-                tone: 'info',
-                title: 'Statement queued',
-                description: 'A consolidated PDF will be emailed to billing@aster.co.',
-              })
-            }
+            onClick={downloadStatement}
+            disabled={!data}
             className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-2.5 py-1.5 text-[10px] text-zinc-400 transition hover:border-white/20 hover:text-zinc-200"
           >
-            <Download className="size-3" /> Statement
+            <Download className="size-3" /> Download statement
           </button>
         </div>
 
@@ -384,28 +431,23 @@ export default function Portal() {
                       ? 'bg-mint-500/10 text-mint-400'
                       : invoice.status === 'due'
                         ? 'bg-amber-soft/10 text-amber-soft'
+                        : invoice.status === 'overdue'
+                          ? 'bg-ember-500/10 text-ember-400'
                         : 'bg-white/5 text-zinc-500'
                   }`}
                 >
                   {invoice.status}
                 </span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    push({
-                      tone: 'success',
-                      title: `${invoice.id} ready`,
-                      description:
-                        invoice.status === 'paid'
-                          ? 'Receipt PDF generated.'
-                          : 'Draft invoice PDF generated.',
-                    })
-                  }
-                  className="rounded-md p-1.5 text-zinc-600 transition hover:bg-white/5 hover:text-zinc-200"
-                  aria-label={`Download ${invoice.id}`}
-                >
-                  <Download className="size-3.5" />
-                </button>
+                {invoice.status !== 'paid' && (
+                  <button
+                    type="button"
+                    onClick={() => void payInvoice(invoice.id)}
+                    disabled={paying !== null}
+                    className="rounded-md border border-white/10 px-2.5 py-1.5 text-[10px] text-zinc-300 transition hover:border-mint-500/40 hover:text-mint-300 disabled:opacity-50"
+                  >
+                    {paying === invoice.id ? 'Processing…' : 'Pay now'}
+                  </button>
+                )}
               </div>
             </div>
           ))}
@@ -432,14 +474,14 @@ export default function Portal() {
           type="button"
           onClick={() =>
             push({
-              tone: 'warning',
-              title: 'Cancellation request opened',
-              description: 'Your admin has 24 hours to confirm. Nothing is cancelled automatically.',
+              tone: 'info',
+              title: 'Contact your account administrator',
+              description: 'Cancellation requests are not submitted from this demo portal.',
             })
           }
           className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-white/10 px-2.5 py-1.5 text-[10px] text-zinc-400 transition hover:border-ember-500/40 hover:text-ember-400"
         >
-          <PauseCircle className="size-3" /> Request cancellation
+          <PauseCircle className="size-3" /> Request plan change
         </button>
       </div>
     </AppShell>
