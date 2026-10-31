@@ -1,22 +1,26 @@
 {
   "name": "brightloop",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "",
-  "main": "index.js",
-  "type": "module",
+  "main": "src/server.js",
+  "type": "commonjs",
   "scripts": {
     "dev": "vite",
+    "dev:server": "node src/server.js",
+    "start": "node src/server.js",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node test-billing.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "animejs": "^4.5.0",
+    "cors": "^2.8.6",
+    "express": "^5.3.0",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "react": "^19.0.1",
