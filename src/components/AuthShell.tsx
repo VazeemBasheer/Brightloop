@@ -21,12 +21,17 @@ export function AuthShell({
   return (
     <div className="grain relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-[#08080a] px-4 py-14">
       <WarpField />
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_20%,#08080a_82%)]" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_32%,transparent_22%,#08080a_88%)]" />
       <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-[#08080a] to-transparent" />
 
       <main className={`relative z-10 w-full ${wide ? 'max-w-lg' : 'max-w-sm'}`}>
         <div className="flex flex-col items-center text-center">
-          <Link to="/" aria-label="Brightloop home" className="group flex items-center gap-2.5">
+          <Link
+            to="/"
+            data-auth-logo
+            aria-label="Brightloop home"
+            className="group flex items-center gap-2.5"
+          >
             <LoopMark className="size-8 transition-transform duration-500 group-hover:rotate-180" />
             <span className="text-base font-semibold tracking-[-0.02em] text-zinc-100">
               brightloop

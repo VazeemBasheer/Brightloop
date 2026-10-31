@@ -83,7 +83,7 @@ Login and signup are **simulated** — they validate input and navigate, but the
 - Toast stack plus inline `Alert` tones (`info`, `success`, `warning`, `error`) used for: duplicate signup email, invoices crossing 60 days, paused add-ons, billing run results, assistant failure, and form validation.
 - All status is never conveyed by colour alone — icons and text labels accompany every state.
 
----
+
 
 ## Data layer and API contract
 
@@ -148,8 +148,8 @@ src/
     data.ts               types + seed content
     format.ts             currency, number, date helpers
   pages/                  Landing, Login, Signup, Dashboard, Portal, NotFound
-```
 
----
+
+
 
 
